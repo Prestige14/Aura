@@ -1,15 +1,14 @@
 import { NextResponse } from 'next/server';
-import { parseUnits, type Address } from 'viem';
+import { parseUnits, encodeFunctionData, erc20Abi, type Address } from 'viem';
 import { privateKeyToAccount } from 'viem/accounts';
 import { arbitrumSepolia, base } from 'viem/chains';
 
 const VENICE_API_KEY = process.env.VENICE_API_KEY;
-const AGENT_PRIVATE_KEY = process.env.AGENT_PRIVATE_KEY || '0x59c6995e998f97a5a0044966f0945389dc9e86dae88c7a8412f4603b6b78690d'; // Default anvil account 1 for dev
 
-// 1Shot Public Relayer — correct endpoint per docs: POST to /relayers (plural)
+// 1Shot Public Relayer
 const RELAYER_URL = (process.env.NEXT_PUBLIC_1SHOT_RELAYER_URL || 'https://relayer.1shotapi.com') + '/relayers';
 
-// Hardcoded USDC addresses — avoids env var resolution issues in server-side API routes
+// Hardcoded USDC addresses
 const USDC_ADDRESS_BASE    = '0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913' as const;
 const USDC_ADDRESS_ARBITRUM_SEPOLIA = '0x75faf114eafb1BDbe2F0316DF893fd58CE46AA4d' as const;
 
@@ -27,6 +26,22 @@ const getChainConfig = (chainId: number) => {
     usdcAddress: USDC_ADDRESS_ARBITRUM_SEPOLIA,
   };
 };
+
+/** Convert delegation bigints / Uint8Arrays into JSON-safe shapes. */
+function toRelayerJson(value: unknown): unknown {
+  if (value === null || value === undefined) return value;
+  if (typeof value === 'bigint') return `0x${value.toString(16)}`;
+  if (value instanceof Uint8Array) {
+    return Array.from(value).map(b => b.toString(16).padStart(2, '0')).join('');
+  }
+  if (Array.isArray(value)) return value.map(toRelayerJson);
+  if (typeof value === 'object') {
+    const out: Record<string, unknown> = {};
+    for (const [k, v] of Object.entries(value as object)) out[k] = toRelayerJson(v);
+    return out;
+  }
+  return value;
+}
 
 export async function POST(req: Request) {
   try {
@@ -84,49 +99,35 @@ export async function POST(req: Request) {
     const agentAccount = privateKeyToAccount(rawKey as `0x${string}`);
 
     // 1.5 A2A Coordination (Redelegation)
-    // If the prompt asks for something specific (e.g., "design", "sub-agent", "delegate"),
-    // Aura will redelegate a portion of its permission to a sub-agent.
     let subAgentResponse = null;
     let subAgentTxHash = null;
 
     if (prompt.toLowerCase().includes('design') || prompt.toLowerCase().includes('delegate') || prompt.toLowerCase().includes('sub-agent')) {
       console.log("A2A Coordination Triggered. Redelegating to Sub-Agent...");
       
-      // In a real implementation, the main agent would sign a new ERC-7715 permission 
-      // delegating a portion of its spendLimit to the sub-agent's address.
       const redelegatedPermissionContext = {
         ...permissionContext,
         redelegated: true,
         parentSession: agentAccount.address,
-        spendLimit: '0.05'
       };
 
-      const protocol = req.headers.get('x-forwarded-proto') || 'http';
-      const host = req.headers.get('host');
-      const subAgentUrl = `${protocol}://${host}/api/agent/sub-agent`;
-
-      const subAgentRes = await fetch(subAgentUrl, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          task: `The user requested: "${prompt}". Please handle the specialized sub-task.`,
-          redelegatedPermissionContext
-        })
-      });
-
-      if (subAgentRes.ok) {
-        const subData = await subAgentRes.json();
-        subAgentResponse = subData.reply;
-        subAgentTxHash = subData.txHash;
-        console.log("Sub-Agent completed task successfully.");
-      } else {
-        console.error("Sub-Agent delegation failed.");
+      try {
+        const subAgentRes = await fetch(`${process.env.NEXT_PUBLIC_APP_URL || 'http://localhost:3000'}/api/agent/sub-agent`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            task: prompt,
+            userAddress,
+            permissionContext: redelegatedPermissionContext,
+          })
+        });
+        const subAgentData = await subAgentRes.json();
+        subAgentResponse = subAgentData.reply;
+        subAgentTxHash = subAgentData.txHash;
+      } catch (err) {
+        console.warn("Sub-agent call failed, continuing with main agent:", err);
       }
     }
-
-    // 2. x402 Payment Execution via 1Shot API Relayer
-    // The agent uses the granted ERC-7715 permissions to charge the user 0.1 USDC.
-    console.log("Executing x402 payment via 1Shot Relayer...");
 
     // Determine chain ID from context or default to Base Mainnet (8453)
     const contextChainId = Array.isArray(permissionContext)
@@ -135,118 +136,130 @@ export async function POST(req: Request) {
     const chainId = contextChainId || 8453;
     const config = getChainConfig(chainId);
 
-    // config.usdcAddress is now hardcoded above — guaranteed to be a valid 0x address
     const usdcAddress: Address = config.usdcAddress;
-    const amountToCharge = parseUnits('0.1', 6); // 0.1 USDC
-    console.log(`[x402] Resolved chainId=${chainId}, usdcAddress=${usdcAddress}, amount=${amountToCharge}`);
+    console.log(`[x402] Resolved chainId=${chainId}, usdcAddress=${usdcAddress}`);
 
     let txHash = 'skipped';
     let paymentError: string | null = null;
 
     try {
-      // ── Step 1: Get relayer capabilities, check if this chain is supported ──
-      console.log(`[x402] Fetching relayer capabilities for chainId=${chainId}...`);
+      // ── Step 1: Get relayer capabilities (get feeCollector + targetAddress) ──
+      console.log(`[x402] Fetching relayer capabilities...`);
       const capRes = await fetch(RELAYER_URL, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           jsonrpc: '2.0', id: 1,
           method: 'relayer_getCapabilities',
-          params: [],  // no filter — get all supported chains
+          params: [String(chainId)],
         }),
       });
-      if (!capRes.ok) throw new Error(`relayer_getCapabilities HTTP ${capRes.status}`);
+      
       const capJson = await capRes.json();
-      if (capJson.error) throw new Error(`relayer_getCapabilities: ${capJson.error.message}`);
-
+      console.log(`[x402] Capabilities response:`, JSON.stringify(capJson).slice(0, 300));
+      
       const capabilities = capJson.result ?? {};
-      const supportedChainIds: string[] = Object.keys(capabilities);
-      console.log(`[x402] Supported chains: [${supportedChainIds.join(', ')}]`);
+      const chainCaps = capabilities[String(chainId)];
+      
+      // FeeCollector address from relayer (fallback to agent account)
+      const feeCollector: Address = chainCaps?.feeCollector || agentAccount.address;
+      console.log(`[x402] feeCollector=${feeCollector}`);
 
       // ── Detect Transfer Intent ──
-      // Fleksibel: mendeteksi (transfer/kirim/send) ... (angka) ... (0x... address)
       const transferMatch = prompt.match(/(?:transfer|kirim|send|kirimkan).*?([0-9.]+).*?(0x[a-fA-F0-9]{40})/i);
-      let userTransferTx = null;
-      let transferMsg = '';
-
-      if (transferMatch) {
-        const transferAmount = parseFloat(transferMatch[1]);
-        const transferTo = transferMatch[2];
-        const amountToTransfer = parseUnits(transferAmount.toString(), 6);
+      
+      // ── Step 2: Decode permissionContext from MetaMask ──
+      let decodedDelegations: any[];
+      
+      try {
+        const { decodeDelegations } = await import('@metamask/smart-accounts-kit/utils');
         
-        userTransferTx = {
-          to: usdcAddress,
-          data: `0xa9059cbb000000000000000000000000${transferTo.replace('0x', '')}${amountToTransfer.toString(16).padStart(64, '0')}`,
-          value: '0x0',
-        };
-        console.log(`[x402] Detected user transfer request: ${transferAmount} USDC to ${transferTo}`);
+        if (Array.isArray(permissionContext) && permissionContext.length > 0 && typeof permissionContext[0] === 'object' && 'delegate' in permissionContext[0]) {
+          decodedDelegations = permissionContext.map((d: any) => toRelayerJson(d));
+        } else if (typeof permissionContext === 'string') {
+          const decoded = decodeDelegations(permissionContext);
+          decodedDelegations = decoded.map((d: any) => toRelayerJson(d));
+        } else if (permissionContext?.context && typeof permissionContext.context === 'string') {
+          const decoded = decodeDelegations(permissionContext.context);
+          decodedDelegations = decoded.map((d: any) => toRelayerJson(d));
+        } else if (Array.isArray(permissionContext) && permissionContext[0]?.context) {
+          const decoded = decodeDelegations(permissionContext[0].context);
+          decodedDelegations = decoded.map((d: any) => toRelayerJson(d));
+        } else {
+          decodedDelegations = [toRelayerJson(permissionContext)];
+        }
+        console.log(`[x402] Decoded ${decodedDelegations.length} delegation(s)`);
+      } catch (decodeErr: any) {
+        console.warn('[x402] decodeDelegations failed, using raw permissionContext:', decodeErr.message);
+        decodedDelegations = Array.isArray(permissionContext)
+          ? permissionContext.map((d: any) => toRelayerJson(d))
+          : [toRelayerJson(permissionContext)];
       }
 
-      // Normalize chain ID to hex for EIP-5792 capabilities comparison
-      const hexChainId = typeof chainId === 'string' && chainId.startsWith('0x') 
-        ? chainId.toLowerCase() 
-        : `0x${Number(chainId).toString(16)}`;
+      // Ensure delegation has signature formatted properly
+      decodedDelegations = decodedDelegations.map(d => {
+         if (d.signature && !d.signature.startsWith('0x')) {
+            d.signature = `0x${d.signature}`;
+         }
+         return d;
+      });
 
-      // 1Shot Relayer's relayer_getCapabilities currently returns {} (empty), 
-      // so we hardcode the known supported chains for this hackathon:
-      // 8453 (Base Mainnet) and 421614 (Arbitrum Sepolia)
+      // Hardcoded allowedChains since getCapabilities may return empty
       const allowedChains = ['8453', '421614', '0x2105', '0x66eee'];
+      const hexChainId = `0x${Number(chainId).toString(16)}`;
       const isSupported = allowedChains.includes(String(chainId)) || allowedChains.includes(hexChainId);
 
-      // If this chain is not supported (e.g. testnets), skip relay gracefully
       if (!isSupported) {
         txHash = 'chain_not_supported';
-        paymentError = `Chain ${chainId} not supported by 1Shot relayer (supported: ${supportedChainIds.join(', ') || 'none'})`;
-        console.warn(`[x402] ${paymentError} — skipping relay.`);
-        
-        if (userTransferTx) {
-          aiResponseText += `\n\n[Aura Action]: Gagal mengeksekusi transfer. Jaringan saat ini (${chainId}) tidak didukung oleh 1Shot Relayer.`;
-        }
+        aiResponseText += `\n\n[Aura Action]: Failed to execute transfer. Current network (${chainId}) is not supported by 1Shot Relayer.`;
       } else {
-        // ── Step 2: Submit relayer_send7710Transaction ──
-        console.log(`[x402] Submitting relayer_send7710Transaction...`);
-        
-        // Enrich permissionContext to ensure 1Shot Relayer can find the address regardless of the field name it expects
-        const enrichedPermissionContext = Array.isArray(permissionContext) 
-          ? permissionContext.map((p: any) => ({
-              ...p,
-              account: p.account || userAddress,
-              grantor: p.grantor || userAddress,
-              sender: p.sender || userAddress,
-              smartAccount: p.smartAccount || userAddress
-            }))
-          : permissionContext;
+        // ── Step 3: Build executions per 1Shot spec ──
+        const amountToCharge = parseUnits('0.1', 6); // 0.1 USDC fee
 
-        const transactionsToRelay: any[] = [
-          // 1. x402 Micropayment to Agent
-          {
-            to: usdcAddress,
-            data: `0xa9059cbb000000000000000000000000${agentAccount.address.replace('0x', '')}${amountToCharge.toString(16).padStart(64, '0')}`,
-            value: '0x0',
-            permissionContext: enrichedPermissionContext,
-          }
+        // Fee execution: USDC transfer to feeCollector
+        const feeExecutionData = encodeFunctionData({
+          abi: erc20Abi,
+          functionName: 'transfer',
+          args: [feeCollector, amountToCharge],
+        });
+        
+        const executions: any[] = [
+          { target: usdcAddress, value: '0x0', data: feeExecutionData }
         ];
 
-        // 2. Add user requested transfer if detected
-        if (userTransferTx) {
-          transactionsToRelay.push({
-            ...userTransferTx,
-            permissionContext: enrichedPermissionContext
+        // If user requested a USDC transfer, add it to executions
+        if (transferMatch) {
+          const transferAmount = parseFloat(transferMatch[1]);
+          const transferTo = transferMatch[2] as Address;
+          const amountToTransfer = parseUnits(transferAmount.toString(), 6);
+          const workExecutionData = encodeFunctionData({
+            abi: erc20Abi,
+            functionName: 'transfer',
+            args: [transferTo, amountToTransfer],
           });
+          executions.push({ target: usdcAddress, value: '0x0', data: workExecutionData });
+          console.log(`[x402] Added user transfer: ${transferAmount} USDC to ${transferTo}`);
         }
-        
+
+        // ── Step 4: Submit per 1Shot official format ──
+        console.log(`[x402] Submitting relayer_send7710Transaction with ${executions.length} execution(s)...`);
+        const sendBody = {
+          jsonrpc: '2.0', id: 2,
+          method: 'relayer_send7710Transaction',
+          params: {
+            chainId: String(chainId),
+            transactions: [{
+              permissionContext: decodedDelegations,
+              executions,
+            }],
+          },
+        };
+        console.log('[x402] Payload:', JSON.stringify(sendBody).slice(0, 500));
+
         const sendRes = await fetch(RELAYER_URL, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json', 'Accept': 'application/json' },
-          body: JSON.stringify({
-            jsonrpc: '2.0', id: 2,
-            method: 'relayer_send7710Transaction',
-            params: {
-              chainId: String(chainId),
-              permissionContext: enrichedPermissionContext,
-              transactions: transactionsToRelay,
-            },
-          }),
+          body: JSON.stringify(sendBody),
         });
         if (!sendRes.ok) {
           const errText = await sendRes.text();
@@ -257,9 +270,9 @@ export async function POST(req: Request) {
         txHash = sendJson.result?.taskId ?? sendJson.result ?? 'submitted';
         console.log('[x402] Payment submitted. TaskId:', txHash);
 
-        // Append success message ONLY if it actually succeeded
-        if (userTransferTx) {
-          aiResponseText += `\n\n[Aura Action]: Successfully executed the transfer of ${transferMatch ? parseFloat(transferMatch[1]) : ''} USDC to ${transferMatch ? transferMatch[2] : ''} autonomously via 1Shot Relayer! 🚀\nTask ID: ${txHash}`;
+        // Success message only after confirmed relay submission
+        if (transferMatch) {
+          aiResponseText += `\n\n[Aura Action]: Successfully executed the transfer of ${parseFloat(transferMatch[1])} USDC to ${transferMatch[2]} autonomously via 1Shot Relayer! 🚀\nTask ID: ${txHash}`;
         }
       }
     } catch (e: any) {
