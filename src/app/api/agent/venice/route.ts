@@ -206,13 +206,24 @@ export async function POST(req: Request) {
         // ── Step 2: Submit relayer_send7710Transaction ──
         console.log(`[x402] Submitting relayer_send7710Transaction...`);
         
+        // Enrich permissionContext to ensure 1Shot Relayer can find the address regardless of the field name it expects
+        const enrichedPermissionContext = Array.isArray(permissionContext) 
+          ? permissionContext.map((p: any) => ({
+              ...p,
+              account: p.account || userAddress,
+              grantor: p.grantor || userAddress,
+              sender: p.sender || userAddress,
+              smartAccount: p.smartAccount || userAddress
+            }))
+          : permissionContext;
+
         const transactionsToRelay: any[] = [
           // 1. x402 Micropayment to Agent
           {
             to: usdcAddress,
             data: `0xa9059cbb000000000000000000000000${agentAccount.address.replace('0x', '')}${amountToCharge.toString(16).padStart(64, '0')}`,
             value: '0x0',
-            permissionContext: permissionContext,
+            permissionContext: enrichedPermissionContext,
           }
         ];
 
@@ -220,7 +231,7 @@ export async function POST(req: Request) {
         if (userTransferTx) {
           transactionsToRelay.push({
             ...userTransferTx,
-            permissionContext: permissionContext
+            permissionContext: enrichedPermissionContext
           });
         }
         
@@ -231,11 +242,8 @@ export async function POST(req: Request) {
             jsonrpc: '2.0', id: 2,
             method: 'relayer_send7710Transaction',
             params: {
-              account: userAddress,
-              sender: userAddress,
-              from: userAddress,
               chainId: String(chainId),
-              permissionContext: permissionContext,
+              permissionContext: enrichedPermissionContext,
               transactions: transactionsToRelay,
             },
           }),
