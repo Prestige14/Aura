@@ -16,18 +16,9 @@ import clsx from 'clsx';
 
 const STEPS = [
   { id: 'connect', label: 'Connect MetaMask', icon: Wallet },
-  { id: 'faucet', label: 'Get Testnet USDC', icon: Zap },
   { id: 'upgrade', label: 'Upgrade to Smart Account', icon: Shield },
   { id: 'permissions', label: 'Grant Session Permissions', icon: CheckCircle },
 ];
-
-interface FaucetResult {
-  txHash?: string;
-  amount?: string;
-  message?: string;
-  simulated?: boolean;
-  error?: string;
-}
 
 interface WalletConnectProps {
   compact?: boolean;
@@ -45,7 +36,7 @@ export function WalletConnect({ compact = false }: WalletConnectProps) {
     sessionPermission,
     usdcBalance,
     isLoadingBalance,
-    switchToTestnet,
+    switchToDefaultChain,
     upgradeToSmartAccount,
     checkSmartAccountStatus,
     requestSessionPermissions,
@@ -55,8 +46,6 @@ export function WalletConnect({ compact = false }: WalletConnectProps) {
   } = useWeb3();
 
   const [currentStep, setCurrentStep] = useState(0);
-  const [faucetLoading, setFaucetLoading] = useState(false);
-  const [faucetResult, setFaucetResult] = useState<FaucetResult | null>(null);
   const [showDropdown, setShowDropdown] = useState(false);
   const [copied, setCopied] = useState(false);
   const [upgradeLoading, setUpgradeLoading] = useState(false);
@@ -68,7 +57,6 @@ export function WalletConnect({ compact = false }: WalletConnectProps) {
   const getCompletedSteps = () => {
     const steps = [];
     if (isConnected) steps.push('connect');
-    if (faucetResult && !faucetResult.error) steps.push('faucet');
     if (isSmartAccount) steps.push('upgrade');
     if (sessionPermission) steps.push('permissions');
     return steps;
@@ -89,47 +77,17 @@ export function WalletConnect({ compact = false }: WalletConnectProps) {
     connect({ connector: metaMaskConnector });
   }, [connectors, connect]);
 
-  const handleFaucet = useCallback(async () => {
-    if (!address) return;
-    setFaucetLoading(true);
-    setFaucetResult(null);
-
-    try {
-      // Switch to testnet first
-      if (chainId !== 421614 && chainId !== 8453) {
-        await switchToTestnet();
-      }
-
-      const response = await fetch('/api/faucet', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ address, chainId: chainId || 421614 }),
-      });
-
-      const data = await response.json();
-      setFaucetResult(data);
-      
-      if (!data.error) {
-        setTimeout(refreshBalance, 3000);
-      }
-    } catch (err) {
-      setFaucetResult({ error: 'Faucet request failed. Please try again.' });
-    } finally {
-      setFaucetLoading(false);
-    }
-  }, [address, chainId, switchToTestnet, refreshBalance]);
-
   const handleUpgrade = useCallback(async () => {
     setUpgradeLoading(true);
     try {
       // Allow Base Mainnet or Arbitrum Sepolia; switch only if not on either
       if (chainId !== 421614 && chainId !== 8453) {
         try {
-          await switchToTestnet();
+          await switchToDefaultChain();
           // Give MetaMask extension time to propagate the new active network
           await new Promise((resolve) => setTimeout(resolve, 1000));
         } catch (switchErr: any) {
-          // switchToTestnet failed or timed out — upgradeToSmartAccount
+          // switchToDefaultChain failed or timed out — upgradeToSmartAccount
           // will verify chain ID and throw a clear error
           console.warn('Chain switch failed or timed out:', switchErr.message);
         }
@@ -140,7 +98,7 @@ export function WalletConnect({ compact = false }: WalletConnectProps) {
     } finally {
       setUpgradeLoading(false);
     }
-  }, [chainId, switchToTestnet, upgradeToSmartAccount]);
+  }, [chainId, switchToDefaultChain, upgradeToSmartAccount]);
 
   const handleVerifySmartAccount = useCallback(async () => {
     clearError();
@@ -158,7 +116,7 @@ export function WalletConnect({ compact = false }: WalletConnectProps) {
     setPermissionsLoading(true);
     try {
       if (chainId !== 421614 && chainId !== 8453) {
-        await switchToTestnet();
+        await switchToDefaultChain();
         await new Promise((resolve) => setTimeout(resolve, 1500));
       }
       await requestSessionPermissions();
@@ -168,7 +126,7 @@ export function WalletConnect({ compact = false }: WalletConnectProps) {
     } finally {
       setPermissionsLoading(false);
     }
-  }, [chainId, switchToTestnet, requestSessionPermissions]);
+  }, [chainId, switchToDefaultChain, requestSessionPermissions]);
 
   const handleCopy = useCallback(() => {
     if (address) {
@@ -346,18 +304,6 @@ export function WalletConnect({ compact = false }: WalletConnectProps) {
             Setup Progress
           </p>
 
-          {/* Step: Faucet */}
-          <SetupStep
-            icon={<Zap className="w-5 h-5" />}
-            title="Get Testnet USDC"
-            description="Receive 5 USDC to cover agent payments"
-            completed={completedSteps.includes('faucet')}
-            loading={faucetLoading}
-            onAction={handleFaucet}
-            actionLabel="Request USDC"
-            result={faucetResult}
-          />
-
           {/* Step: Smart Account Upgrade */}
           <SetupStep
             icon={<Shield className="w-5 h-5" />}
@@ -367,7 +313,7 @@ export function WalletConnect({ compact = false }: WalletConnectProps) {
             loading={upgradeLoading || smartAccountStatus === 'upgrading'}
             onAction={handleUpgrade}
             actionLabel="Upgrade Account"
-            disabled={(!faucetResult || !!faucetResult.error) && usdcBalance < BigInt(5000000)}
+            disabled={false}
           />
 
           {/* Step: ERC-7715 Permissions */}

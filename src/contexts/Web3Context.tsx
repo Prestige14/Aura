@@ -49,7 +49,7 @@ export interface Web3State {
   isLoadingBalance: boolean;
 
   // Actions
-  switchToTestnet: () => Promise<void>;
+  switchToDefaultChain: () => Promise<void>;
   upgradeToSmartAccount: () => Promise<void>;
   checkSmartAccountStatus: () => Promise<boolean>;
   requestSessionPermissions: () => Promise<SessionPermission>;
@@ -133,9 +133,9 @@ export function Web3Provider({ children }: { children: ReactNode }) {
     }
   }, [isConnected, address, chainId, refreshBalance]);
 
-  // ── Switch to testnet ─────────────────────────────────────────────────────
+  // ── Switch to default chain ───────────────────────────────────────────────
 
-  const switchToTestnet = useCallback(async () => {
+  const switchToDefaultChain = useCallback(async () => {
     try {
       // First request the switch
       await switchChainAsync({ chainId: DEFAULT_CHAIN.id });
@@ -153,7 +153,7 @@ export function Web3Provider({ children }: { children: ReactNode }) {
         
         const timeout = setTimeout(() => {
           window.ethereum?.removeListener?.('chainChanged', handler);
-          reject(new Error('Network switch timed out. Please switch to Arbitrum Sepolia manually in MetaMask.'));
+          reject(new Error(`Network switch timed out. Please switch to ${DEFAULT_CHAIN.name} manually in MetaMask.`));
         }, 8000); // 8 seconds to give the user enough time to click approve
         
         const handler = (chainId: string) => {
@@ -382,7 +382,7 @@ export function Web3Provider({ children }: { children: ReactNode }) {
     sessionPermission,
     usdcBalance,
     isLoadingBalance,
-    switchToTestnet,
+    switchToDefaultChain,
     upgradeToSmartAccount,
     checkSmartAccountStatus,
     requestSessionPermissions,

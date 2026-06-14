@@ -5,7 +5,7 @@ import { arbitrumSepolia, base } from 'viem/chains';
 
 export const SUPPORTED_CHAINS = [arbitrumSepolia, base] as const;
 
-export const DEFAULT_CHAIN = arbitrumSepolia;
+export const DEFAULT_CHAIN = base;
 
 export const CHAIN_CONFIG = {
   [arbitrumSepolia.id]: {
