@@ -325,7 +325,23 @@ export function Web3Provider({ children }: { children: ReactNode }) {
       // Get USDC address for the current chain config, fallback to Base Mainnet USDC address
       const usdcAddress = chainConfig?.usdcAddress || ('0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913' as Address);
 
-      const agentAddress = (process.env.NEXT_PUBLIC_AGENT_ADDRESS || '0x70997970C51812dc3A010C7d01b50e0d17dc79C8') as Address; // Default anvil account 1 for dev
+      // 1Shot Relayer requires delegations to be granted strictly to its targetAddress, not the agent address
+      const RELAYER_URL = (process.env.NEXT_PUBLIC_1SHOT_RELAYER_URL || 'https://relayer.1shotapi.com') + '/relayers';
+      const capRes = await fetch(RELAYER_URL, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          jsonrpc: '2.0', id: 1,
+          method: 'relayer_getCapabilities',
+          params: [String(chainId || 8453)],
+        }),
+      });
+      const capJson = await capRes.json();
+      const targetAddress = capJson.result?.[String(chainId || 8453)]?.targetAddress;
+      
+      if (!targetAddress) {
+        throw new Error('Failed to resolve 1Shot Relayer target address for chain ' + (chainId || 8453));
+      }
 
       console.log('Requesting session permissions for Agent via Smart Accounts Kit...');
 
@@ -334,7 +350,7 @@ export function Web3Provider({ children }: { children: ReactNode }) {
       const permissionResult = await walletClient.requestExecutionPermissions([
         {
           chainId: chainId || 8453, // Defaults to Base Mainnet
-          to: agentAddress,
+          to: targetAddress as Address, // MUST BE RELAYER TARGET ADDRESS
           expiry,
           permission: {
             type: 'erc20-token-allowance',
