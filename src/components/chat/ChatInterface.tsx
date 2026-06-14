@@ -55,7 +55,7 @@ export function ChatInterface() {
     const msg = input.trim();
     setInput('');
     setRows(1);
-    await sendMessage(msg, address, sessionPermission);
+    await sendMessage(msg, address, sessionPermission?.permissionContext);
   }, [input, isProcessing, sendMessage, address, sessionPermission]);
 
   const handleKeyDown = (e: React.KeyboardEvent) => {
@@ -131,7 +131,7 @@ export function ChatInterface() {
                   key={prompt}
                   whileHover={{ scale: 1.01, x: 4 }}
                   whileTap={{ scale: 0.99 }}
-                  onClick={() => sendMessage(prompt.slice(2))} // Remove emoji prefix
+                  onClick={() => sendMessage(prompt.slice(2).trim(), address, sessionPermission?.permissionContext)}
                   className="text-left px-4 py-3 rounded-xl border border-aura-border bg-aura-surface hover:border-aura-accent/50 hover:bg-aura-card text-sm text-aura-muted hover:text-aura-text transition-all"
                 >
                   {prompt}
