@@ -64,8 +64,14 @@ export async function POST(req: Request) {
         const veniceData = await veniceRes.json();
         aiResponseText = veniceData.choices[0].message.content;
       } else {
-        console.error("Venice API Error (Sub-Agent):", await veniceRes.text());
-        aiResponseText = "Sub-Agent encountered an error.";
+        const errorText = await veniceRes.text();
+        console.error("Venice API Error (Sub-Agent):", errorText);
+        try {
+          const errJson = JSON.parse(errorText);
+          aiResponseText = `[Sub-Agent Error]: Venice AI API failed. Reason: ${errJson.error || errorText}`;
+        } catch {
+          aiResponseText = `[Sub-Agent Error]: I encountered an error connecting to my neural net (Venice AI). ${errorText}`;
+        }
       }
     }
 

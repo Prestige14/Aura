@@ -65,8 +65,14 @@ export async function POST(req: Request) {
         const veniceData = await veniceRes.json();
         aiResponseText = veniceData.choices[0].message.content;
       } else {
-        console.error("Venice API Error:", await veniceRes.text());
-        aiResponseText = "I encountered an error connecting to my neural net (Venice AI).";
+        const errorText = await veniceRes.text();
+        console.error("Venice API Error:", errorText);
+        try {
+          const errJson = JSON.parse(errorText);
+          aiResponseText = `[Aura Error]: Venice AI API failed. Reason: ${errJson.error || errorText}. (If it says Insufficient USD, please add credits at venice.ai/settings/api)`;
+        } catch {
+          aiResponseText = `[Aura Error]: I encountered an error connecting to my neural net (Venice AI). ${errorText}`;
+        }
       }
     }
 
