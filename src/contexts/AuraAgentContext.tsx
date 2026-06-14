@@ -11,6 +11,19 @@ import React, {
   type ReactNode,
 } from 'react';
 
+// ─── Global BigInt Polyfill ──────────────────────────────────────────────────
+// Prevents "Do not know how to serialize a BigInt" errors globally by teaching
+// JSON.stringify how to handle BigInts natively.
+if (typeof BigInt !== 'undefined' && !('toJSON' in BigInt.prototype)) {
+  Object.defineProperty(BigInt.prototype, 'toJSON', {
+    get() {
+      return function (this: bigint) {
+        return this.toString();
+      };
+    },
+  });
+}
+
 // ─── Types ───────────────────────────────────────────────────────────────────
 
 export type AgentStatus =
@@ -161,14 +174,6 @@ export function AuraAgentProvider({ children }: { children: ReactNode }) {
     );
   };
 
-  // ── BigInt-safe JSON serializer ─────────────────────────────────────────────
-  // JSON.stringify throws on BigInt values returned by MetaMask SDK.
-  // This replacer converts any BigInt to a string representation.
-  const safeStringify = (obj: unknown) =>
-    JSON.stringify(obj, (_key, value) =>
-      typeof value === 'bigint' ? value.toString() : value
-    );
-
   // ── Send message / trigger agent pipeline ─────────────────────────────────
 
   const sendMessage = useCallback(
@@ -212,7 +217,7 @@ export function AuraAgentProvider({ children }: { children: ReactNode }) {
         const response = await fetch('/api/agent/venice', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: safeStringify({
+          body: JSON.stringify({
             prompt: content,
             userAddress: address || '0xUserAddressFallback',
             permissionContext: permissionContext || { dummy: true },
