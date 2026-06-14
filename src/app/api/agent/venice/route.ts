@@ -216,11 +216,6 @@ export async function POST(req: Request) {
         ];
 
         // 2. Add user requested transfer if detected
-        if (userTransferTx) {
-          transactionsToRelay.push(userTransferTx);
-          aiResponseText += `\n\n[Aura Action]: Telah mengeksekusi transfer ${transferMatch ? parseFloat(transferMatch[1]) : ''} USDC ke ${transferMatch ? transferMatch[2] : ''} sesuai perintah Anda secara otomatis via 1Shot Relayer! 🚀`;
-        }
-
         const sendRes = await fetch(RELAYER_URL, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json', 'Accept': 'application/json' },
@@ -242,10 +237,16 @@ export async function POST(req: Request) {
         if (sendJson.error) throw new Error(`relayer_send7710Transaction: ${sendJson.error.message}`);
         txHash = sendJson.result?.taskId ?? sendJson.result ?? 'submitted';
         console.log('[x402] Payment submitted. TaskId:', txHash);
+
+        // Append success message ONLY if it actually succeeded
+        if (userTransferTx) {
+          aiResponseText += `\n\n[Aura Action]: Telah mengeksekusi transfer ${transferMatch ? parseFloat(transferMatch[1]) : ''} USDC ke ${transferMatch ? transferMatch[2] : ''} sesuai perintah Anda secara otomatis via 1Shot Relayer! 🚀\nTask ID: ${txHash}`;
+        }
       }
     } catch (e: any) {
       paymentError = e?.message ?? String(e);
       console.error('[x402] Execution Error:', paymentError);
+      aiResponseText += `\n\n[Aura Error]: Transaksi gagal dieksekusi. Alasan dari Relayer: ${paymentError}`;
     }
 
     // Combine responses if sub-agent was called
