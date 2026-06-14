@@ -240,13 +240,13 @@ export async function POST(req: Request) {
 
         // Append success message ONLY if it actually succeeded
         if (userTransferTx) {
-          aiResponseText += `\n\n[Aura Action]: Telah mengeksekusi transfer ${transferMatch ? parseFloat(transferMatch[1]) : ''} USDC ke ${transferMatch ? transferMatch[2] : ''} sesuai perintah Anda secara otomatis via 1Shot Relayer! 🚀\nTask ID: ${txHash}`;
+          aiResponseText += `\n\n[Aura Action]: Successfully executed the transfer of ${transferMatch ? parseFloat(transferMatch[1]) : ''} USDC to ${transferMatch ? transferMatch[2] : ''} autonomously via 1Shot Relayer! 🚀\nTask ID: ${txHash}`;
         }
       }
     } catch (e: any) {
       paymentError = e?.message ?? String(e);
       console.error('[x402] Execution Error:', paymentError);
-      aiResponseText += `\n\n[Aura Error]: Transaksi gagal dieksekusi. Alasan dari Relayer: ${paymentError}`;
+      aiResponseText += `\n\n[Aura Error]: Failed to execute transaction. Relayer response: ${paymentError}`;
     }
 
     // Combine responses if sub-agent was called
