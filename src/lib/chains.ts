@@ -19,7 +19,7 @@ export const CHAIN_CONFIG = {
   [base.id]: {
     name: 'Base Mainnet',
     chain: base,
-    usdcAddress: process.env.NEXT_PUBLIC_USDC_ADDRESS_BASE as `0x${string}`,
+    usdcAddress: (process.env.NEXT_PUBLIC_USDC_ADDRESS_BASE || '0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913') as `0x${string}`,
     rpcUrl: process.env.NEXT_PUBLIC_BASE_MAINNET_RPC || 'https://mainnet.base.org',
     blockExplorer: 'https://basescan.org',
     faucetUrl: '',
