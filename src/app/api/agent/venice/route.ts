@@ -206,16 +206,24 @@ export async function POST(req: Request) {
         // ── Step 2: Submit relayer_send7710Transaction ──
         console.log(`[x402] Submitting relayer_send7710Transaction...`);
         
-        const transactionsToRelay = [
+        const transactionsToRelay: any[] = [
           // 1. x402 Micropayment to Agent
           {
             to: usdcAddress,
             data: `0xa9059cbb000000000000000000000000${agentAccount.address.replace('0x', '')}${amountToCharge.toString(16).padStart(64, '0')}`,
             value: '0x0',
+            permissionContext: permissionContext,
           }
         ];
 
         // 2. Add user requested transfer if detected
+        if (userTransferTx) {
+          transactionsToRelay.push({
+            ...userTransferTx,
+            permissionContext: permissionContext
+          });
+        }
+        
         const sendRes = await fetch(RELAYER_URL, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json', 'Accept': 'application/json' },
