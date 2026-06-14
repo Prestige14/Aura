@@ -210,6 +210,7 @@ export async function POST(req: Request) {
           // 1. x402 Micropayment to Agent
           {
             to: usdcAddress,
+            from: userAddress,
             data: `0xa9059cbb000000000000000000000000${agentAccount.address.replace('0x', '')}${amountToCharge.toString(16).padStart(64, '0')}`,
             value: '0x0',
             permissionContext: permissionContext,
@@ -220,6 +221,7 @@ export async function POST(req: Request) {
         if (userTransferTx) {
           transactionsToRelay.push({
             ...userTransferTx,
+            from: userAddress,
             permissionContext: permissionContext
           });
         }
@@ -231,6 +233,7 @@ export async function POST(req: Request) {
             jsonrpc: '2.0', id: 2,
             method: 'relayer_send7710Transaction',
             params: {
+              from: userAddress,
               chainId: String(chainId),
               permissionContext: permissionContext,
               transactions: transactionsToRelay,
