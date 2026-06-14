@@ -32,7 +32,7 @@ function toRelayerJson(value: unknown): unknown {
   if (value === null || value === undefined) return value;
   if (typeof value === 'bigint') return `0x${value.toString(16)}`;
   if (value instanceof Uint8Array) {
-    return Array.from(value).map(b => b.toString(16).padStart(2, '0')).join('');
+    return '0x' + Array.from(value).map(b => b.toString(16).padStart(2, '0')).join('');
   }
   if (Array.isArray(value)) return value.map(toRelayerJson);
   if (typeof value === 'object') {
@@ -177,13 +177,13 @@ export async function POST(req: Request) {
         if (Array.isArray(permissionContext) && permissionContext.length > 0 && typeof permissionContext[0] === 'object' && 'delegate' in permissionContext[0]) {
           decodedDelegations = permissionContext.map((d: any) => toRelayerJson(d));
         } else if (typeof permissionContext === 'string') {
-          const decoded = decodeDelegations(permissionContext);
+          const decoded = decodeDelegations(permissionContext as any);
           decodedDelegations = decoded.map((d: any) => toRelayerJson(d));
         } else if (permissionContext?.context && typeof permissionContext.context === 'string') {
-          const decoded = decodeDelegations(permissionContext.context);
+          const decoded = decodeDelegations(permissionContext.context as any);
           decodedDelegations = decoded.map((d: any) => toRelayerJson(d));
         } else if (Array.isArray(permissionContext) && permissionContext[0]?.context) {
-          const decoded = decodeDelegations(permissionContext[0].context);
+          const decoded = decodeDelegations(permissionContext[0].context as any);
           decodedDelegations = decoded.map((d: any) => toRelayerJson(d));
         } else {
           decodedDelegations = [toRelayerJson(permissionContext)];
