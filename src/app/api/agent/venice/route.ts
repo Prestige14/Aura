@@ -158,6 +158,25 @@ export async function POST(req: Request) {
       const supportedChainIds: string[] = Object.keys(capabilities);
       console.log(`[x402] Supported chains: [${supportedChainIds.join(', ')}]`);
 
+      // ── Detect Transfer Intent ──
+      const transferMatch = prompt.match(/(?:transfer|kirim|send)\s+([0-9.]+)\s*(?:usdc)?\s*(?:ke|to)\s+(0x[a-fA-F0-9]{40})/i);
+      let userTransferTx = null;
+      let transferMsg = '';
+
+      if (transferMatch) {
+        const transferAmount = parseFloat(transferMatch[1]);
+        const transferTo = transferMatch[2];
+        const amountToTransfer = parseUnits(transferAmount.toString(), 6);
+        
+        userTransferTx = {
+          to: usdcAddress,
+          data: `0xa9059cbb000000000000000000000000${transferTo.replace('0x', '')}${amountToTransfer.toString(16).padStart(64, '0')}`,
+          value: '0x0',
+        };
+        console.log(`[x402] Detected user transfer request: ${transferAmount} USDC to ${transferTo}`);
+        transferMsg = `\n\n[Aura Action]: Telah mengeksekusi transfer ${transferAmount} USDC ke ${transferTo} sesuai perintah Anda.`;
+      }
+
       // If this chain is not supported (e.g. testnets), skip relay gracefully
       if (!supportedChainIds.includes(String(chainId))) {
         txHash = 'chain_not_supported';
@@ -166,6 +185,22 @@ export async function POST(req: Request) {
       } else {
         // ── Step 2: Submit relayer_send7710Transaction ──
         console.log(`[x402] Submitting relayer_send7710Transaction...`);
+        
+        const transactionsToRelay = [
+          // 1. x402 Micropayment to Agent
+          {
+            to: usdcAddress,
+            data: `0xa9059cbb000000000000000000000000${agentAccount.address.replace('0x', '')}${amountToCharge.toString(16).padStart(64, '0')}`,
+            value: '0x0',
+          }
+        ];
+
+        // 2. Add user requested transfer if detected
+        if (userTransferTx) {
+          transactionsToRelay.push(userTransferTx);
+          aiResponseText += transferMsg;
+        }
+
         const sendRes = await fetch(RELAYER_URL, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json', 'Accept': 'application/json' },
@@ -175,13 +210,7 @@ export async function POST(req: Request) {
             params: {
               chainId: String(chainId),
               permissionContext: permissionContext,
-              transactions: [
-                {
-                  to: usdcAddress,
-                  data: `0xa9059cbb000000000000000000000000${agentAccount.address.replace('0x', '')}${amountToCharge.toString(16).padStart(64, '0')}`,
-                  value: '0x0',
-                },
-              ],
+              transactions: transactionsToRelay,
             },
           }),
         });
