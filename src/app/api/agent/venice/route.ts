@@ -209,7 +209,7 @@ export async function POST(req: Request) {
         // 2. Add user requested transfer if detected
         if (userTransferTx) {
           transactionsToRelay.push(userTransferTx);
-          aiResponseText += `\n\n[Aura Action]: Telah mengeksekusi transfer ${transferMatch ? parseFloat(transferMatch[1]) : ''} USDC ke ${transferTo} sesuai perintah Anda secara otomatis via 1Shot Relayer! 🚀`;
+          aiResponseText += `\n\n[Aura Action]: Telah mengeksekusi transfer ${transferMatch ? parseFloat(transferMatch[1]) : ''} USDC ke ${transferMatch ? transferMatch[2] : ''} sesuai perintah Anda secara otomatis via 1Shot Relayer! 🚀`;
         }
 
         const sendRes = await fetch(RELAYER_URL, {
