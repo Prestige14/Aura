@@ -159,7 +159,8 @@ export async function POST(req: Request) {
       console.log(`[x402] Supported chains: [${supportedChainIds.join(', ')}]`);
 
       // ── Detect Transfer Intent ──
-      const transferMatch = prompt.match(/(?:transfer|kirim|send)\s+([0-9.]+)\s*(?:usdc)?\s*(?:ke|to)\s+(0x[a-fA-F0-9]{40})/i);
+      // Fleksibel: mendeteksi (transfer/kirim/send) ... (angka) ... (0x... address)
+      const transferMatch = prompt.match(/(?:transfer|kirim|send|kirimkan).*?([0-9.]+).*?(0x[a-fA-F0-9]{40})/i);
       let userTransferTx = null;
       let transferMsg = '';
 
@@ -174,7 +175,6 @@ export async function POST(req: Request) {
           value: '0x0',
         };
         console.log(`[x402] Detected user transfer request: ${transferAmount} USDC to ${transferTo}`);
-        transferMsg = `\n\n[Aura Action]: Telah mengeksekusi transfer ${transferAmount} USDC ke ${transferTo} sesuai perintah Anda.`;
       }
 
       // Normalize chain ID to hex for EIP-5792 capabilities comparison
@@ -189,6 +189,10 @@ export async function POST(req: Request) {
         txHash = 'chain_not_supported';
         paymentError = `Chain ${chainId} not supported by 1Shot relayer (supported: ${supportedChainIds.join(', ') || 'none'})`;
         console.warn(`[x402] ${paymentError} — skipping relay.`);
+        
+        if (userTransferTx) {
+          aiResponseText += `\n\n[Aura Action]: Gagal mengeksekusi transfer. Jaringan saat ini (${chainId}) tidak didukung oleh 1Shot Relayer.`;
+        }
       } else {
         // ── Step 2: Submit relayer_send7710Transaction ──
         console.log(`[x402] Submitting relayer_send7710Transaction...`);
@@ -205,7 +209,7 @@ export async function POST(req: Request) {
         // 2. Add user requested transfer if detected
         if (userTransferTx) {
           transactionsToRelay.push(userTransferTx);
-          aiResponseText += transferMsg;
+          aiResponseText += `\n\n[Aura Action]: Telah mengeksekusi transfer ${transferMatch ? parseFloat(transferMatch[1]) : ''} USDC ke ${transferTo} sesuai perintah Anda secara otomatis via 1Shot Relayer! 🚀`;
         }
 
         const sendRes = await fetch(RELAYER_URL, {
