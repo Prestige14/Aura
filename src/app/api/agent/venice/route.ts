@@ -76,7 +76,12 @@ export async function POST(req: Request) {
       }
     }
 
-    const agentAccount = privateKeyToAccount(AGENT_PRIVATE_KEY as `0x${string}`);
+    // Formatting private key properly for viem
+    let rawKey = process.env.AGENT_PRIVATE_KEY || 'ac0974bec39a17e36ba4a6b4d238ff944bacb478cbed5efcae784d7bf4f2ff80';
+    if (!rawKey.startsWith('0x')) {
+      rawKey = '0x' + rawKey;
+    }
+    const agentAccount = privateKeyToAccount(rawKey as `0x${string}`);
 
     // 1.5 A2A Coordination (Redelegation)
     // If the prompt asks for something specific (e.g., "design", "sub-agent", "delegate"),
