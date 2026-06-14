@@ -182,6 +182,11 @@ export async function POST(req: Request) {
         console.log(`[x402] Detected user transfer request: ${transferAmount} USDC to ${transferTo}`);
       }
 
+      // Normalize chain ID to hex for EIP-5792 capabilities comparison
+      const hexChainId = typeof chainId === 'string' && chainId.startsWith('0x') 
+        ? chainId.toLowerCase() 
+        : `0x${Number(chainId).toString(16)}`;
+
       // 1Shot Relayer's relayer_getCapabilities currently returns {} (empty), 
       // so we hardcode the known supported chains for this hackathon:
       // 8453 (Base Mainnet) and 421614 (Arbitrum Sepolia)
