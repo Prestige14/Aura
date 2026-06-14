@@ -177,8 +177,15 @@ export async function POST(req: Request) {
         transferMsg = `\n\n[Aura Action]: Telah mengeksekusi transfer ${transferAmount} USDC ke ${transferTo} sesuai perintah Anda.`;
       }
 
+      // Normalize chain ID to hex for EIP-5792 capabilities comparison
+      const hexChainId = typeof chainId === 'string' && chainId.startsWith('0x') 
+        ? chainId.toLowerCase() 
+        : `0x${Number(chainId).toString(16)}`;
+      
+      const isSupported = supportedChainIds.some(id => id.toLowerCase() === hexChainId || id === String(chainId));
+
       // If this chain is not supported (e.g. testnets), skip relay gracefully
-      if (!supportedChainIds.includes(String(chainId))) {
+      if (!isSupported) {
         txHash = 'chain_not_supported';
         paymentError = `Chain ${chainId} not supported by 1Shot relayer (supported: ${supportedChainIds.join(', ') || 'none'})`;
         console.warn(`[x402] ${paymentError} — skipping relay.`);

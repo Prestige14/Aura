@@ -248,7 +248,6 @@ export function AuraAgentProvider({ children }: { children: ReactNode }) {
           role: 'assistant',
           content: data.reply || 'Task completed successfully.',
           timestamp: Date.now(),
-          transactionSteps: freshSteps, // This isn't dynamic anymore since we removed SSE, but UI will show the final state
         };
 
         setMessages((prev) => [...prev, assistantMsg]);
